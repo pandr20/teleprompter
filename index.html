@@ -34,6 +34,8 @@ select{background:#0f0f10;color:#fff;border:1px solid #333;border-radius:8px;pad
 .chip{background:var(--glass);border:1px solid var(--line);border-radius:99px;padding:9px 13px;font-size:14px;white-space:nowrap}
 .chip:disabled{opacity:.35}
 #seg{min-width:92px;text-align:center}
+body.whole #prev,body.whole #next,body.whole #seg{display:none}
+#pstate:empty{display:none}
 #rec{width:74px;height:74px;border-radius:50%;border:4px solid #fff;display:grid;place-items:center;flex:none}
 #rec i{display:block;width:56px;height:56px;border-radius:50%;background:var(--red);transition:all .2s}
 #rec.on i{width:28px;height:28px;border-radius:6px}
@@ -74,7 +76,7 @@ input[type=checkbox]{width:22px;height:22px;accent-color:#3b82f6}
 <video id="cam" class="mirror" autoplay playsinline muted></video>
 
 <div id="prompter"><div id="ptext"></div></div>
-<div id="pstate">Tryk på teksten for at starte</div>
+<div id="pstate"></div>
 
 <div id="timer">0:00</div>
 <div id="count">3</div>
@@ -95,13 +97,13 @@ input[type=checkbox]{width:22px;height:22px;accent-color:#3b82f6}
 <div class="sheet" id="setSheet"><div class="panel">
   <h2>Tekst og indstillinger <button data-close>Færdig</button></h2>
   <textarea id="script" spellcheck="false" placeholder="Indsæt dit manuskript her."></textarea>
-  <div class="hint">Lav en tom linje mellem afsnittene. Hvert afsnit bliver sin egen optagelse. Teksten gemmes kun på denne telefon.</div>
+  <div class="hint">Teksten ruller af sig selv fra start til slut, når du optager. Taletempo styrer, hvor hurtigt den ruller. Teksten gemmes kun på denne telefon.</div>
   <label class="row">Tekstens placering <select id="place"><option value="top">Øverst</option><option value="left">Venstre side</option><option value="right">Højre side</option></select></label>
-  <label class="row">Hastighed <input type="range" id="speed" min="10" max="120" step="2"><output id="speedV"></output></label>
+  <label class="row">Taletempo <input type="range" id="wpm" min="70" max="200" step="5"><output id="wpmV"></output></label>
   <label class="row">Skriftstørrelse <input type="range" id="fs" min="18" max="64" step="1"><output id="fsV"></output></label>
   <label class="row">Tekstfeltets højde <input type="range" id="ph" min="20" max="70" step="1"><output id="phV"></output></label>
   <label class="row">Nedtælling før optagelse <input type="checkbox" id="countOn"></label>
-  <label class="row">Start teksten automatisk ved optagelse <input type="checkbox" id="autoOn"></label>
+  <label class="row">Optag ét afsnit ad gangen <input type="checkbox" id="oneByOne"></label>
   <label class="row">Brug bagkameraet <input type="checkbox" id="backCam"></label>
 </div></div>
 
@@ -129,18 +131,18 @@ const store = {
 
 const S = {
   script: store.get('script', DEFAULT_SCRIPT),
-  speed: store.get('speed', 40),
+  wpm: store.get('wpm', 130),
   fs: store.get('fs', 30),
   ph: store.get('ph', 36),
   countOn: store.get('countOn', true),
-  autoOn: store.get('autoOn', true),
+  oneByOne: store.get('oneByOne', false),
   backCam: store.get('backCam', false),
   seg: store.get('seg', 0),
   place: store.get('place', 'top'),
 };
 
 let stream = null, recorder = null, chunks = [], recStart = 0, timerInt = null;
-let pos = 0, playing = false, lastT = 0, takes = [], busy = false;
+let pos = 0, playing = false, lastT = 0, takes = [], busy = false, leadIn = null;
 
 function segments(){ return S.script.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean); }
 
@@ -150,7 +152,8 @@ function render(){
   if (S.seg >= segs.length) S.seg = segs.length - 1;
   if (S.seg < 0) S.seg = 0;
   const t = $('ptext');
-  t.textContent = segs[S.seg];
+  document.body.classList.toggle('whole', !S.oneByOne);
+  t.textContent = S.oneByOne ? segs[S.seg] : segs.join('\n\n');
   const end = document.createElement('div'); end.className = 'end'; t.appendChild(end);
   $('seg').textContent = `Afsnit ${S.seg+1}/${segs.length}`;
   $('prev').disabled = S.seg === 0 || isRec();
@@ -164,26 +167,20 @@ function render(){
 
 function maxPos(){ const t = $('ptext'); return Math.max(0, t.scrollHeight - $('prompter').clientHeight * 0.9); }
 function applyPos(){ $('ptext').style.transform = `translateY(${-pos}px)`; }
-function resetScroll(){ pos = 0; setPlaying(false); applyPos(); }
+function resetScroll(){ pos = 0; setPlaying(false); applyPos(); status(''); }
+function words(){ return ($('ptext').textContent.match(/\S+/g) || []).length; }
+let pxps = 30;
+function calcSpeed(){ const secs = Math.max(5, words() / S.wpm * 60); pxps = maxPos() / secs; }
+function status(m){ $('pstate').textContent = m; }
 function setPlaying(p){
   playing = p; lastT = 0;
-  $('pstate').textContent = p ? 'Tryk for pause' : (pos > 0 ? 'Pause. Tryk for at fortsætte' : 'Tryk på teksten for at starte');
-  if (p) requestAnimationFrame(tick);
+  if (p) { calcSpeed(); requestAnimationFrame(tick); }
 }
 function tick(t){
   if (!playing) return;
-  if (lastT) { pos = Math.min(maxPos(), pos + S.speed * (t - lastT) / 1000); applyPos(); if (pos >= maxPos()) { setPlaying(false); return; } }
+  if (lastT) { pos = Math.min(maxPos(), pos + pxps * (t - lastT) / 1000); applyPos(); if (pos >= maxPos()) { setPlaying(false); status('Slut på teksten. Tryk stop'); return; } }
   lastT = t; requestAnimationFrame(tick);
 }
-
-// Drag to scroll, tap to play or pause.
-(() => {
-  const p = $('prompter'); let y0 = null, p0 = 0, moved = false;
-  p.addEventListener('pointerdown', e => { y0 = e.clientY; p0 = pos; moved = false; p.setPointerCapture(e.pointerId); });
-  p.addEventListener('pointermove', e => { if (y0 === null) return; const dy = y0 - e.clientY; if (Math.abs(dy) > 6) { moved = true; if (playing) setPlaying(false); } if (moved) { pos = Math.max(0, Math.min(maxPos(), p0 + dy)); applyPos(); } });
-  p.addEventListener('pointerup', () => { if (!moved) setPlaying(!playing); else setPlaying(false); y0 = null; });
-  p.addEventListener('pointercancel', () => { y0 = null; });
-})();
 
 async function startCamera(){
   if (stream) stream.getTracks().forEach(t => t.stop());
@@ -222,7 +219,7 @@ async function startRec(){
   chunks = [];
   try { recorder = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8000000 } : { videoBitsPerSecond: 8000000 }); }
   catch(e) { recorder = new MediaRecorder(stream); }
-  const seg = S.seg;
+  const seg = S.oneByOne ? S.seg : -1;
   const r = recorder, myChunks = chunks;
   r.ondataavailable = e => { if (e.data && e.data.size) myChunks.push(e.data); };
   r.onstop = () => saveTake(seg, new Blob(myChunks, { type: r.mimeType || type || 'video/mp4' }));
@@ -230,12 +227,13 @@ async function startRec(){
   recStart = Date.now();
   $('rec').classList.add('on'); $('timer').classList.add('show'); $('timer').textContent = '0:00';
   timerInt = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); $('timer').textContent = `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }, 250);
-  if (S.autoOn) setPlaying(true);
+  status('');
+  leadIn = setTimeout(() => { if (isRec()) setPlaying(true); }, 1200);
   keepAwake(true); render0(); busy = false;
 }
 function stopRec(){
   if (!isRec()) return;
-  recorder.stop(); setPlaying(false); clearInterval(timerInt);
+  recorder.stop(); clearTimeout(leadIn); setPlaying(false); clearInterval(timerInt); status('');
   $('rec').classList.remove('on'); $('timer').classList.remove('show');
   keepAwake(false); setTimeout(render0, 50);
 }
@@ -255,7 +253,7 @@ function saveTake(seg, blob){
   takes.push(t); dbPut(t); renderTakes();
   $('takesBtn').textContent = `Optagelser (${takes.length})`;
 }
-function nameOf(t){ return `afsnit-${t.seg+1}-take-${t.n}.${extFor(t.type)}`; }
+function nameOf(t){ return (t.seg < 0 ? `video-take-${t.n}` : `afsnit-${t.seg+1}-take-${t.n}`) + '.' + extFor(t.type); }
 
 async function shareTake(t){
   const file = new File([t.blob], nameOf(t), { type: t.type || 'video/mp4' });
@@ -273,7 +271,7 @@ function renderTakes(){
     const v = document.createElement('video'); v.src = t.url; v.playsInline = true; v.controls = true; v.preload = 'metadata';
     const info = document.createElement('div');
     const mb = (t.blob.size / 1048576).toFixed(1);
-    info.innerHTML = `<b>Afsnit ${t.seg+1}, optagelse ${t.n}</b><small>${mb} MB</small>`;
+    info.innerHTML = `<b>${t.seg < 0 ? 'Hele teksten' : 'Afsnit ' + (t.seg+1)}, optagelse ${t.n}</b><small>${mb} MB</small>`;
     const acts = document.createElement('div'); acts.className = 'acts';
     const g = document.createElement('button'); g.className = 'btn primary'; g.textContent = 'Gem'; g.onclick = () => shareTake(t);
     const d = document.createElement('button'); d.className = 'btn danger'; d.textContent = 'Slet';
@@ -282,17 +280,17 @@ function renderTakes(){
   });
 }
 
-function alertMsg(m){ $('pstate').textContent = m; }
+function alertMsg(m){ status(m); }
 
 // Settings
 function bindSettings(){
   const sc = $('script'); sc.value = S.script;
   sc.addEventListener('input', () => { S.script = sc.value; store.set('script', S.script); render(); });
-  [['speed','speedV',v => v + ''], ['fs','fsV',v => v + ' px'], ['ph','phV',v => v + ' %']].forEach(([id, out, f]) => {
+  [['wpm','wpmV',v => v + ' ord/min'], ['fs','fsV',v => v + ' px'], ['ph','phV',v => v + ' %']].forEach(([id, out, f]) => {
     const el = $(id); el.value = S[id]; $(out).textContent = f(S[id]);
     el.addEventListener('input', () => { S[id] = +el.value; store.set(id, S[id]); $(out).textContent = f(S[id]); rerender(); });
   });
-  ['countOn','autoOn'].forEach(id => { const el = $(id); el.checked = S[id]; el.addEventListener('change', () => { S[id] = el.checked; store.set(id, S[id]); }); });
+  ['countOn','oneByOne'].forEach(id => { const el = $(id); el.checked = S[id]; el.addEventListener('change', () => { S[id] = el.checked; store.set(id, S[id]); render(); }); });
   const pl = $('place'); pl.value = S.place;
   pl.addEventListener('change', () => { S.place = pl.value; store.set('place', S.place); rerender(); });
   const bc = $('backCam'); bc.checked = S.backCam;

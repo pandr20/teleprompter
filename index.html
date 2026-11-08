@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="robots" content="noindex">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>Teleprompter</title>
+<style>
+:root{--red:#e5352b;--ink:#fff;--glass:rgba(0,0,0,.55);--line:rgba(255,255,255,.18)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#111}
+#cam.mirror{transform:scaleX(-1)}
+
+#prompter{position:fixed;top:calc(env(safe-area-inset-top) + 8px);left:50%;transform:translateX(-50%);width:min(88vw,900px);height:var(--ph,36vh);background:var(--glass);border-radius:16px;overflow:hidden;touch-action:none;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 82%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 82%,transparent 100%)}
+body.side-left #prompter,body.side-right #prompter{width:min(44vw,520px);height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 128px);transform:none}
+body.side-left #prompter{left:calc(env(safe-area-inset-left) + 8px)}
+body.side-right #prompter{left:auto;right:calc(env(safe-area-inset-right) + 8px)}
+body.side-left #pstate,body.side-right #pstate{top:auto;bottom:calc(env(safe-area-inset-bottom) + 132px)}
+body.side-left #ptext,body.side-right #ptext{padding:10% 7% 0}
+body.side-left #ptext .end,body.side-right #ptext .end{height:100dvh}
+select{background:#0f0f10;color:#fff;border:1px solid #333;border-radius:8px;padding:6px 8px;font:inherit}
+#ptext{position:absolute;left:0;right:0;top:0;padding:14% 6% 0;font-size:var(--fs,30px);line-height:1.35;font-weight:600;white-space:pre-wrap;will-change:transform;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+#ptext .end{height:var(--ph,36vh)}
+#pstate{position:fixed;top:calc(env(safe-area-inset-top) + 14px + var(--ph,36vh));left:50%;transform:translateX(-50%);white-space:nowrap;font-size:12px;background:rgba(0,0,0,.5);padding:3px 8px;border-radius:99px;pointer-events:none;opacity:.85}
+
+#bar{position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(env(safe-area-inset-bottom) + 12px);display:flex;align-items:center;justify-content:space-between;gap:10px;background:linear-gradient(to top,rgba(0,0,0,.7),transparent)}
+.side{display:flex;gap:8px;align-items:center;flex:1}
+.side.r{justify-content:flex-end}
+.chip{background:var(--glass);border:1px solid var(--line);border-radius:99px;padding:9px 13px;font-size:14px;white-space:nowrap}
+.chip:disabled{opacity:.35}
+#seg{min-width:92px;text-align:center}
+#rec{width:74px;height:74px;border-radius:50%;border:4px solid #fff;display:grid;place-items:center;flex:none}
+#rec i{display:block;width:56px;height:56px;border-radius:50%;background:var(--red);transition:all .2s}
+#rec.on i{width:28px;height:28px;border-radius:6px}
+#timer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 98px);background:var(--red);padding:3px 10px;border-radius:99px;font-variant-numeric:tabular-nums;font-size:14px;display:none}
+#timer.show{display:block}
+#count{position:fixed;inset:0;display:none;place-items:center;font-size:30vmin;font-weight:700;text-shadow:0 4px 20px rgba(0,0,0,.6);pointer-events:none}
+#count.show{display:grid}
+
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:10}
+.sheet.show{display:flex}
+.panel{background:#1b1b1d;width:min(100%,720px);max-height:88dvh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 18px calc(env(safe-area-inset-bottom) + 18px)}
+.panel h2{margin:0 0 12px;font-size:19px;display:flex;justify-content:space-between;align-items:center}
+.panel h2 button{font-size:15px;color:#9cc3ff;font-weight:600}
+textarea{width:100%;min-height:38dvh;background:#0f0f10;color:#fff;border:1px solid #333;border-radius:12px;padding:12px;font:16px/1.45 inherit;resize:vertical}
+.hint{color:#a5a5ab;font-size:13px;margin:6px 0 14px}
+label.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-top:1px solid #2a2a2d;font-size:15px}
+label.row input[type=range]{flex:1;max-width:55%}
+label.row output{min-width:44px;text-align:right;color:#a5a5ab;font-size:13px}
+input[type=checkbox]{width:22px;height:22px;accent-color:#3b82f6}
+.take{display:grid;grid-template-columns:112px 1fr;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #2a2a2d}
+.take video{width:112px;height:63px;object-fit:cover;border-radius:8px;background:#000}
+.take b{display:block;font-size:15px}
+.take small{color:#a5a5ab}
+.take .acts{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.btn{background:#2c2c30;border-radius:10px;padding:8px 12px;font-size:14px}
+.btn.primary{background:#2563eb}
+.btn.danger{color:#ff8a80}
+.empty{color:#a5a5ab;padding:10px 0}
+
+#start{position:fixed;inset:0;z-index:20;background:#0b0b0c;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:16px}
+#start h1{margin:0;font-size:26px}
+#start p{margin:0;color:#b9b9bf;max-width:420px}
+#start .go{background:var(--red);padding:14px 26px;border-radius:99px;font-size:17px;font-weight:600}
+#err{color:#ff8a80;max-width:420px}
+</style>
+</head>
+<body>
+<video id="cam" class="mirror" autoplay playsinline muted></video>
+
+<div id="prompter"><div id="ptext"></div></div>
+<div id="pstate">Tryk på teksten for at starte</div>
+
+<div id="timer">0:00</div>
+<div id="count">3</div>
+
+<div id="bar">
+  <div class="side">
+    <button class="chip" id="prev" aria-label="Forrige afsnit">‹</button>
+    <span class="chip" id="seg">Afsnit 1/1</span>
+    <button class="chip" id="next" aria-label="Næste afsnit">›</button>
+  </div>
+  <button id="rec" aria-label="Optag"><i></i></button>
+  <div class="side r">
+    <button class="chip" id="takesBtn">Optagelser</button>
+    <button class="chip" id="setBtn" aria-label="Indstillinger">⚙︎</button>
+  </div>
+</div>
+
+<div class="sheet" id="setSheet"><div class="panel">
+  <h2>Tekst og indstillinger <button data-close>Færdig</button></h2>
+  <textarea id="script" spellcheck="false" placeholder="Indsæt dit manuskript her."></textarea>
+  <div class="hint">Lav en tom linje mellem afsnittene. Hvert afsnit bliver sin egen optagelse. Teksten gemmes kun på denne telefon.</div>
+  <label class="row">Tekstens placering <select id="place"><option value="top">Øverst</option><option value="left">Venstre side</option><option value="right">Højre side</option></select></label>
+  <label class="row">Hastighed <input type="range" id="speed" min="10" max="120" step="2"><output id="speedV"></output></label>
+  <label class="row">Skriftstørrelse <input type="range" id="fs" min="18" max="64" step="1"><output id="fsV"></output></label>
+  <label class="row">Tekstfeltets højde <input type="range" id="ph" min="20" max="70" step="1"><output id="phV"></output></label>
+  <label class="row">Nedtælling før optagelse <input type="checkbox" id="countOn"></label>
+  <label class="row">Start teksten automatisk ved optagelse <input type="checkbox" id="autoOn"></label>
+  <label class="row">Brug bagkameraet <input type="checkbox" id="backCam"></label>
+</div></div>
+
+<div class="sheet" id="takesSheet"><div class="panel">
+  <h2>Optagelser <button data-close>Luk</button></h2>
+  <div class="hint">Optagelserne ligger kun på denne telefon. Tryk "Gem" for at lægge dem i Fotos eller Filer.</div>
+  <div id="takes"></div>
+</div></div>
+
+<div id="start">
+  <h1>Teleprompter</h1>
+  <p>Hold telefonen vandret for 16:9. Under ⚙︎ kan du lægge teksten i den side, hvor kameraet sidder, så du kigger tæt på linsen, mens du læser.</p>
+  <button class="go" id="go">Start kameraet</button>
+  <div id="err"></div>
+</div>
+
+<script>
+const DEFAULT_SCRIPT = '';
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('tp.'+k); return v === null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem('tp.'+k, JSON.stringify(v)); }catch(e){} }
+};
+
+const S = {
+  script: store.get('script', DEFAULT_SCRIPT),
+  speed: store.get('speed', 40),
+  fs: store.get('fs', 30),
+  ph: store.get('ph', 36),
+  countOn: store.get('countOn', true),
+  autoOn: store.get('autoOn', true),
+  backCam: store.get('backCam', false),
+  seg: store.get('seg', 0),
+  place: store.get('place', 'top'),
+};
+
+let stream = null, recorder = null, chunks = [], recStart = 0, timerInt = null;
+let pos = 0, playing = false, lastT = 0, takes = [], busy = false;
+
+function segments(){ return S.script.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean); }
+
+function render(){
+  const segs = segments();
+  if (!segs.length) segs.push('Tryk på ⚙︎ nederst til højre og indsæt din tekst. Lav en tom linje mellem afsnittene.');
+  if (S.seg >= segs.length) S.seg = segs.length - 1;
+  if (S.seg < 0) S.seg = 0;
+  const t = $('ptext');
+  t.textContent = segs[S.seg];
+  const end = document.createElement('div'); end.className = 'end'; t.appendChild(end);
+  $('seg').textContent = `Afsnit ${S.seg+1}/${segs.length}`;
+  $('prev').disabled = S.seg === 0 || isRec();
+  $('next').disabled = S.seg >= segs.length - 1 || isRec();
+  document.body.classList.toggle('side-left', S.place === 'left');
+  document.body.classList.toggle('side-right', S.place === 'right');
+  document.documentElement.style.setProperty('--fs', S.fs + 'px');
+  document.documentElement.style.setProperty('--ph', S.ph + 'vh');
+  resetScroll();
+}
+
+function maxPos(){ const t = $('ptext'); return Math.max(0, t.scrollHeight - $('prompter').clientHeight * 0.9); }
+function applyPos(){ $('ptext').style.transform = `translateY(${-pos}px)`; }
+function resetScroll(){ pos = 0; setPlaying(false); applyPos(); }
+function setPlaying(p){
+  playing = p; lastT = 0;
+  $('pstate').textContent = p ? 'Tryk for pause' : (pos > 0 ? 'Pause. Tryk for at fortsætte' : 'Tryk på teksten for at starte');
+  if (p) requestAnimationFrame(tick);
+}
+function tick(t){
+  if (!playing) return;
+  if (lastT) { pos = Math.min(maxPos(), pos + S.speed * (t - lastT) / 1000); applyPos(); if (pos >= maxPos()) { setPlaying(false); return; } }
+  lastT = t; requestAnimationFrame(tick);
+}
+
+// Drag to scroll, tap to play or pause.
+(() => {
+  const p = $('prompter'); let y0 = null, p0 = 0, moved = false;
+  p.addEventListener('pointerdown', e => { y0 = e.clientY; p0 = pos; moved = false; p.setPointerCapture(e.pointerId); });
+  p.addEventListener('pointermove', e => { if (y0 === null) return; const dy = y0 - e.clientY; if (Math.abs(dy) > 6) { moved = true; if (playing) setPlaying(false); } if (moved) { pos = Math.max(0, Math.min(maxPos(), p0 + dy)); applyPos(); } });
+  p.addEventListener('pointerup', () => { if (!moved) setPlaying(!playing); else setPlaying(false); y0 = null; });
+  p.addEventListener('pointercancel', () => { y0 = null; });
+})();
+
+async function startCamera(){
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const video = { facingMode: S.backCam ? 'environment' : 'user', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+  stream = await navigator.mediaDevices.getUserMedia({ video, audio: { echoCancellation: true, noiseSuppression: true } });
+  const cam = $('cam'); cam.srcObject = stream; cam.classList.toggle('mirror', !S.backCam);
+  try { await cam.play(); } catch(e) {}
+}
+
+function pickType(){
+  const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  if (!window.MediaRecorder) return null;
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+}
+const isRec = () => recorder && recorder.state === 'recording';
+
+let wakeLock = null;
+async function keepAwake(on){
+  try { if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; } } catch(e) {}
+}
+
+function countdown(){
+  return new Promise(res => {
+    if (!S.countOn) return res();
+    const c = $('count'); let n = 3; c.textContent = n; c.classList.add('show');
+    const iv = setInterval(() => { n--; if (n <= 0) { clearInterval(iv); c.classList.remove('show'); res(); } else c.textContent = n; }, 1000);
+  });
+}
+
+async function startRec(){
+  if (busy || !stream) return; busy = true;
+  resetScroll();
+  await countdown();
+  const type = pickType();
+  if (type === null) { alertMsg('Din browser kan ikke optage video. Prøv Safari eller Chrome.'); busy = false; return; }
+  chunks = [];
+  try { recorder = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8000000 } : { videoBitsPerSecond: 8000000 }); }
+  catch(e) { recorder = new MediaRecorder(stream); }
+  const seg = S.seg;
+  const r = recorder, myChunks = chunks;
+  r.ondataavailable = e => { if (e.data && e.data.size) myChunks.push(e.data); };
+  r.onstop = () => saveTake(seg, new Blob(myChunks, { type: r.mimeType || type || 'video/mp4' }));
+  recorder.start(1000);
+  recStart = Date.now();
+  $('rec').classList.add('on'); $('timer').classList.add('show'); $('timer').textContent = '0:00';
+  timerInt = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); $('timer').textContent = `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }, 250);
+  if (S.autoOn) setPlaying(true);
+  keepAwake(true); render0(); busy = false;
+}
+function stopRec(){
+  if (!isRec()) return;
+  recorder.stop(); setPlaying(false); clearInterval(timerInt);
+  $('rec').classList.remove('on'); $('timer').classList.remove('show');
+  keepAwake(false); setTimeout(render0, 50);
+}
+function render0(){ const segs = segments(); $('prev').disabled = S.seg === 0 || isRec(); $('next').disabled = S.seg >= segs.length - 1 || isRec(); }
+
+// Takes are kept in IndexedDB so a reload does not lose them.
+let db = null;
+function openDb(){ return new Promise(res => { try { const r = indexedDB.open('teleprompter', 1); r.onupgradeneeded = () => r.result.createObjectStore('takes', { keyPath: 'id' }); r.onsuccess = () => { db = r.result; res(); }; r.onerror = () => res(); } catch(e) { res(); } }); }
+function dbAll(){ return new Promise(res => { if (!db) return res([]); try { const q = db.transaction('takes').objectStore('takes').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => res([]); } catch(e) { res([]); } }); }
+function dbPut(t){ try { if (db) db.transaction('takes', 'readwrite').objectStore('takes').put({ id: t.id, seg: t.seg, n: t.n, created: t.created, blob: t.blob, type: t.type }); } catch(e) {} }
+function dbDel(id){ try { if (db) db.transaction('takes', 'readwrite').objectStore('takes').delete(id); } catch(e) {} }
+
+function extFor(type){ return /mp4/.test(type) ? 'mp4' : /webm/.test(type) ? 'webm' : 'mov'; }
+function saveTake(seg, blob){
+  const n = takes.filter(t => t.seg === seg).length + 1;
+  const t = { id: Date.now() + '-' + Math.random().toString(36).slice(2,7), seg, n, created: Date.now(), blob, type: blob.type, url: URL.createObjectURL(blob) };
+  takes.push(t); dbPut(t); renderTakes();
+  $('takesBtn').textContent = `Optagelser (${takes.length})`;
+}
+function nameOf(t){ return `afsnit-${t.seg+1}-take-${t.n}.${extFor(t.type)}`; }
+
+async function shareTake(t){
+  const file = new File([t.blob], nameOf(t), { type: t.type || 'video/mp4' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: nameOf(t) }); return; } catch(e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = t.url; a.download = nameOf(t); document.body.appendChild(a); a.click(); a.remove();
+}
+
+function renderTakes(){
+  const box = $('takes'); box.innerHTML = '';
+  if (!takes.length) { box.innerHTML = '<div class="empty">Ingen optagelser endnu.</div>'; return; }
+  [...takes].sort((a,b) => a.seg - b.seg || a.n - b.n).forEach(t => {
+    const row = document.createElement('div'); row.className = 'take';
+    const v = document.createElement('video'); v.src = t.url; v.playsInline = true; v.controls = true; v.preload = 'metadata';
+    const info = document.createElement('div');
+    const mb = (t.blob.size / 1048576).toFixed(1);
+    info.innerHTML = `<b>Afsnit ${t.seg+1}, optagelse ${t.n}</b><small>${mb} MB</small>`;
+    const acts = document.createElement('div'); acts.className = 'acts';
+    const g = document.createElement('button'); g.className = 'btn primary'; g.textContent = 'Gem'; g.onclick = () => shareTake(t);
+    const d = document.createElement('button'); d.className = 'btn danger'; d.textContent = 'Slet';
+    d.onclick = () => { if (d.dataset.sure) { takes = takes.filter(x => x !== t); dbDel(t.id); URL.revokeObjectURL(t.url); renderTakes(); $('takesBtn').textContent = takes.length ? `Optagelser (${takes.length})` : 'Optagelser'; } else { d.dataset.sure = 1; d.textContent = 'Tryk igen for at slette'; } };
+    acts.append(g, d); info.appendChild(acts); row.append(v, info); box.appendChild(row);
+  });
+}
+
+function alertMsg(m){ $('pstate').textContent = m; }
+
+// Settings
+function bindSettings(){
+  const sc = $('script'); sc.value = S.script;
+  sc.addEventListener('input', () => { S.script = sc.value; store.set('script', S.script); render(); });
+  [['speed','speedV',v => v + ''], ['fs','fsV',v => v + ' px'], ['ph','phV',v => v + ' %']].forEach(([id, out, f]) => {
+    const el = $(id); el.value = S[id]; $(out).textContent = f(S[id]);
+    el.addEventListener('input', () => { S[id] = +el.value; store.set(id, S[id]); $(out).textContent = f(S[id]); rerender(); });
+  });
+  ['countOn','autoOn'].forEach(id => { const el = $(id); el.checked = S[id]; el.addEventListener('change', () => { S[id] = el.checked; store.set(id, S[id]); }); });
+  const pl = $('place'); pl.value = S.place;
+  pl.addEventListener('change', () => { S.place = pl.value; store.set('place', S.place); rerender(); });
+  const bc = $('backCam'); bc.checked = S.backCam;
+  bc.addEventListener('change', async () => { if (isRec()) { bc.checked = S.backCam; return; } S.backCam = bc.checked; store.set('backCam', S.backCam); try { await startCamera(); } catch(e) { alertMsg('Kunne ikke skifte kamera.'); } });
+}
+
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('.sheet').classList.remove('show'));
+document.querySelectorAll('.sheet').forEach(s => s.addEventListener('click', e => { if (e.target === s) s.classList.remove('show'); }));
+$('setBtn').onclick = () => { if (!isRec()) $('setSheet').classList.add('show'); };
+$('takesBtn').onclick = () => { renderTakes(); $('takesSheet').classList.add('show'); };
+$('prev').onclick = () => { if (isRec()) return; S.seg--; store.set('seg', S.seg); render(); };
+$('next').onclick = () => { if (isRec()) return; S.seg++; store.set('seg', S.seg); render(); };
+$('rec').onclick = () => isRec() ? stopRec() : startRec();
+function rerender(){ const p = pos, was = playing; render(); pos = Math.min(p, maxPos()); applyPos(); if (was) setPlaying(true); }
+addEventListener('resize', rerender);
+addEventListener('beforeunload', e => { if (isRec()) { e.preventDefault(); e.returnValue = ''; } });
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('err').textContent = 'Kameraet kræver Safari eller Chrome og en https-adresse.'; return; }
+  try { await startCamera(); $('start').remove(); if (!segments().length) $('setSheet').classList.add('show'); }
+  catch(e) { $('err').textContent = 'Kunne ikke få adgang til kamera og mikrofon. Giv siden lov i browserens indstillinger, og prøv igen.'; }
+};
+
+(async () => {
+  bindSettings(); render();
+  await openDb();
+  const saved = await dbAll();
+  takes = saved.filter(t => t.blob).map(t => ({ ...t, url: URL.createObjectURL(t.blob) }));
+  if (takes.length) $('takesBtn').textContent = `Optagelser (${takes.length})`;
+})();
+</script>
+</body>
+</html>
